@@ -1,0 +1,1233 @@
+---
+title: "Comparing the effect differeces between 'true' and literature growth rates have on model efficacy"
+author: "Charles Hinchliffe"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+
+The .rmd demonstartes the effect of having large differences between 'true' and applied literature growth rate on classic catch-curve methods, and our size-distribution model with known G. To age the data a simple linear model is applied to size_sampled using a specificed G from the literature (0.21)
+
+# Load require packages and functions
+
+```{r}
+library(rstan)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(FSA)
+library(fishmethods)
+library(pracma)
+library(bayesplot)
+library(bayesboot)
+library(see)
+library(IDPmisc)
+
+#agesurv funtion from 'fishmethods' with decimal rounding removed
+source("R/agesurv_no_rounding.R")
+
+#Data generation and manipulation functions
+source("R/generate_sample.R")
+source("R/trim_data_to_mode.R")
+source("R/create_bins.R")
+
+#For re-aging
+source("R/age_data_with_literature_growth_rate.R")
+
+#prapre data for stan model
+source("R/data_for_stan_size.R")
+
+#Plotting functions
+source("R/plot_age_dist.R")
+source("R/plot_size_dist.R")
+source("R/element_textbox.R")
+```
+
+
+# Read in stan models
+```{r, eval = FALSE}
+#size distribution model known G
+ret_size <- stan_model(file="stan/mortality_size_known_g.stan")
+```
+
+
+# Select g_av percent change
+```{r}
+g_change_percent <- c(0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      0,0,0,0,0,0,0,0,0,0,
+                      
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      1,1,1,1,1,1,1,1,1,1,
+                      
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      3,3,3,3,3,3,3,3,3,3,
+                      
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      5,5,5,5,5,5,5,5,5,5,
+                      
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      10,10,10,10,10,10,10,10,10,10,
+                      
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      25,25,25,25,25,25,25,25,25,25,
+                      
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50,
+                      50,50,50,50,50,50,50,50,50,50
+                      
+                      )
+
+g_change_percent
+
+
+
+output_data <- as.data.frame(g_change_percent)
+
+```
+
+
+# Run models
+```{r,eval=FALSE}
+tryCatch(
+for(i in seq_len(nrow(output_data))){
+
+#generate data  
+percent_change = g_change_percent[i]/100 
+  
+data <- simulate_catch_data(R =500,
+                            s0_av = 3,
+                            log10s0_sd = 0.0,
+                            g_av = 0.21 +(0.21*percent_change),
+                            log10g_sd = 0.00,
+                            z_av = 0.25, 
+                            log10z_sd = 0.00) 
+
+
+#create age and size bins
+data <- create_bins(data,
+                    bin_width_age = 1,
+                    bin_width_size = 0.1)
+
+
+
+###select subset of individuals for 'ageing' and apply linear model or ALK. Eg: simulating age/length(or weight) measurements made in lab from subset of individuals across all ages/sizes 
+
+data <- age_data_with_literature_growth_rate(data = data)
+
+#get sample size
+output_data$sample_size[i] <- nrow(data)
+
+
+#Sort ages into age bins, 1 day width
+bin_width <- 1
+
+cat_data <- lencat(~estimated_age, data = data, startcat = 0, w = bin_width, vname = "ageCat") ## uses agecat data, bins set at 1 day
+
+## mode function for fully recruited age
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+
+# Calculate the mode using the user function.
+recruit_age <- getmode(cat_data$ageCat)
+recruit_age
+
+ 
+#Catch-curve method (Linear regression)
+catch_curve <- agesurv2(age=cat_data$ageCat, full = recruit_age, estimate = "z", method = "lr") ##
+
+output_data$catch_curve[i] <- as.numeric(catch_curve$`results`[3]) # extract z
+
+#truncated catch-curve (weighted Linear regression)
+trunc_curve <- agesurv2(age=cat_data$ageCat, full = recruit_age, estimate = "z", method = "wlr") ##
+
+output_data$weighted_catch_curve[i] <- as.numeric(trunc_curve$`results`[3])# extract z
+
+
+
+#Chapman-robson method
+CRZ <- agesurv2(age=cat_data$ageCat, full = recruit_age, estimate = "z", method = "crcb") 
+
+output_data$Chapman_Robson[i] <- as.numeric(CRZ$`results`[3]) # extract z
+
+
+#select data sample from stan known g model
+data2 <- data_for_stan_size(data)
+
+##sample from stan model
+fit_size <- sampling(ret_size, data = data2, iter = 999, chains = 3)
+
+output_data$stan_size[i] <- mean(rstan::extract(fit_size, pars="Z")[["Z"]])
+
+
+}, error=function(e) e
+)
+
+saveRDS(output_data, "output/literature_growth_difference_with_true_g.rds")
+```
+
+# Read in output
+```{r}
+output_data <- readRDS("output/literature_growth_difference_with_true_g.rds")
+```
+
+
+# Plot output
+
+Make long format data
+```{r}
+keycol <- "model"
+valuecol <- "z"
+gathercols <- c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_size")
+
+output_data_long <- gather_(output_data, keycol, valuecol, gathercols)
+
+head(output_data_long)
+```
+
+Plot long format trend line
+```{r}
+p4 <- ggplot(output_data_long, aes(g_change_percent, z, group = model, col = model)) +
+  geom_point() +
+  geom_smooth(method = "loess", se=F) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_classic()
+
+p4
+```
+
+
+
+# Facet plot
+
+Device size 6 x 13inch
+```{r}
+
+data <- output_data_long %>% mutate(model = factor(model, levels=c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_size")))
+  
+data
+
+fac_plot <- ggplot(data, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0.25, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "right", plot.title = element_textbox(color = "black", hjust = 0.5, margin = margin(t = 3, b = 3), face = "italic")) +
+  scale_fill_material_d(palette = "ice") +
+  ylab(expression(bar(z))) +
+  facet_wrap(~g_change_percent, nrow = 1, ncol = 7) + labs(title = "% increase in literature g")#labs(title = expression('Variability around'~ bar(Z)))
+ 
+
+fac_plot
+
+lit_g_difference_g_fac_plot <- ggplot(data, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0.25, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "none", plot.title = element_textbox(color = "black", hjust = 0.5, margin = margin(t = 3, b = 3), face = "italic")) +
+  scale_fill_material_d(palette = "ice") +
+  ylab(expression(bar(z))) +
+  facet_wrap(~g_change_percent, nrow = 1, ncol = 7) + labs(title = "% increase in literature g") #+  
+  #theme(plot.title = element_textbox(hjust = 0.5, margin = margin(t = 5, b = 5)) #labs(title = expression('*Variability around*'~ bar(Z)))
+ 
+
+lit_g_difference_g_fac_plot
+```
+
+# Extract data for summary table
+## catch curve
+```{r}
+#catch curve
+CC5 <- output_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 0) %>%
+  select(catch_curve) 
+
+mean(NaRV.omit(CC5$catch_curve))
+sd(NaRV.omit(CC5$catch_curve))
+
+#
+CC10 <- output_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 1) %>%
+  select(catch_curve) 
+
+mean(NaRV.omit(CC10$catch_curve))
+sd(NaRV.omit(CC10$catch_curve))
+
+#
+CC20 <- output_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 3) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC20$catch_curve))
+sd(NaRV.omit(CC20$catch_curve))
+
+#
+CC50 <- output_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 5) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC50$catch_curve))
+sd(NaRV.omit(CC50$catch_curve))
+
+#
+CC100 <- output_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 10) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC100$catch_curve))
+sd(NaRV.omit(CC100$catch_curve))
+
+#
+CC500 <- output_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 25) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC500$catch_curve))
+sd(NaRV.omit(CC500$catch_curve))
+
+#
+CC <- output_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 50) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC$catch_curve))
+sd(NaRV.omit(CC$catch_curve))
+```
+## weighted catch curve
+```{r}
+#catch curve
+wCC5 <- output_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 0) %>%
+  select(weighted_catch_curve) 
+
+mean(NaRV.omit(wCC5$weighted_catch_curve))
+sd(NaRV.omit(wCC5$weighted_catch_curve))
+
+#
+wCC10 <- output_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 1) %>%
+  select(weighted_catch_curve) 
+
+mean(NaRV.omit(wCC10$weighted_catch_curve))
+sd(NaRV.omit(wCC10$weighted_catch_curve))
+
+#
+wCC20 <- output_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 3) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC20$weighted_catch_curve))
+sd(NaRV.omit(wCC20$weighted_catch_curve))
+
+#
+wCC50 <- output_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 5) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC50$weighted_catch_curve))
+sd(NaRV.omit(wCC50$weighted_catch_curve))
+
+#
+wCC100 <- output_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 10) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC100$weighted_catch_curve))
+sd(NaRV.omit(wCC100$weighted_catch_curve))
+
+#
+wCC500 <- output_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 25) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC500$weighted_catch_curve))
+sd(NaRV.omit(wCC500$weighted_catch_curve))
+
+#
+wCC <- output_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 50) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC$weighted_catch_curve))
+sd(NaRV.omit(wCC$weighted_catch_curve))
+```
+
+
+## Chapman Robson
+```{r}
+#Chapman robson
+CR5 <- output_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 0) %>%
+  select(Chapman_Robson) 
+
+mean(NaRV.omit(CR5$Chapman_Robson))
+sd(NaRV.omit(CR5$Chapman_Robson))
+
+#
+CR10 <- output_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 1) %>%
+  select(Chapman_Robson) 
+
+mean(NaRV.omit(CR10$Chapman_Robson))
+sd(NaRV.omit(CR10$Chapman_Robson))
+
+#
+CR20 <- output_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 3) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR20$Chapman_Robson))
+sd(NaRV.omit(CR20$Chapman_Robson))
+
+#
+CR50 <- output_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 5) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR50$Chapman_Robson))
+sd(NaRV.omit(CR50$Chapman_Robson))
+
+#
+CR100 <- output_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 10) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR100$Chapman_Robson))
+sd(NaRV.omit(CR100$Chapman_Robson))
+
+#
+CR500 <- output_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 25) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR500$Chapman_Robson))
+sd(NaRV.omit(CR500$Chapman_Robson))
+
+#
+CR <- output_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 50) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR$Chapman_Robson))
+sd(NaRV.omit(CR$Chapman_Robson))
+```
+
+## stan size
+```{r}
+#Stan size
+SA5 <- output_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 0) %>%
+  select(stan_size) 
+
+mean(NaRV.omit(SA5$stan_size))
+sd(NaRV.omit(SA5$stan_size))
+
+#
+SA10 <- output_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 1) %>%
+  select(stan_size) 
+
+mean(NaRV.omit(SA10$stan_size))
+sd(NaRV.omit(SA10$stan_size))
+
+#
+SA20 <- output_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 3) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA20$stan_size))
+sd(NaRV.omit(SA20$stan_size))
+
+#
+SA50 <- output_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 5) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA50$stan_size))
+sd(NaRV.omit(SA50$stan_size))
+
+#
+SA100 <- output_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 10) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA100$stan_size))
+sd(NaRV.omit(SA100$stan_size))
+
+#
+SA500 <- output_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 25) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA500$stan_size))
+sd(NaRV.omit(SA500$stan_size))
+
+#
+SA <- output_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 50) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA$stan_size))
+sd(NaRV.omit(SA$stan_size))
+
+```
+
+
+# Normalised results
+## Normalise data around mean z 0.25
+
+```{r}
+normalised_data <- output_data
+
+normalised_data$catch_curve <- ((normalised_data$catch_curve/0.25)*100)-100
+
+
+normalised_data$weighted_catch_curve <- ((normalised_data$weighted_catch_curve/0.25)*100)-100
+
+
+normalised_data$Chapman_Robson <- ((normalised_data$Chapman_Robson/0.25)*100)-100
+
+
+normalised_data$stan_size <- ((normalised_data$stan_size/0.25)*100)-100
+
+head(normalised_data)
+```
+
+
+# Plot output
+
+Make long format data
+```{r}
+keycol <- "model"
+valuecol <- "z"
+gathercols <- c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_size")
+
+normalised_data_long <- gather_(normalised_data, keycol, valuecol, gathercols)
+
+head(normalised_data_long)
+```
+
+Plot long format trend line
+```{r}
+p4 <- ggplot(normalised_data_long, aes(g_change_percent, z, group = model, col = model)) +
+  geom_point() +
+  geom_smooth(method = "loess", se=F) +
+  geom_hline(yintercept=0, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_classic()
+
+p4
+```
+
+
+
+# Facet plot
+
+Device size 6 x 13inch
+```{r}
+
+data <- normalised_data_long %>% mutate(model = factor(model, levels=c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_size")))
+  
+data
+
+fac_plot <- ggplot(data, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "right", plot.title = element_textbox(color = "black", hjust = 0.5, margin = margin(t = 3, b = 3), face = "italic")) +
+  scale_fill_material_d(palette = "ice") +
+  ylab(expression(bar(z))) +
+  facet_wrap(~g_change_percent, nrow = 1, ncol = 7) + labs(title = "% increase in literature g")#labs(title = expression('Variability around'~ bar(Z)))
+ 
+
+fac_plot
+
+normalised_lit_g_difference_g_fac_plot <- ggplot(data, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "none", plot.title = element_textbox(color = "black", hjust = 0.5, margin = margin(t = 3, b = 3), face = "italic")) +
+  scale_fill_material_d(palette = "ice") +
+  ylab(expression(bar(z))) +
+  facet_wrap(~g_change_percent, nrow = 1, ncol = 7) + labs(title = "% increase in literature g") #+  
+  #theme(plot.title = element_textbox(hjust = 0.5, margin = margin(t = 5, b = 5)) #labs(title = expression('*Variability around*'~ bar(Z)))
+ 
+
+normalised_lit_g_difference_g_fac_plot
+```
+
+
+
+# Extract normalised data for summary table
+## catch curve
+```{r}
+#catch curve
+CC5 <- normalised_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 0) %>%
+  select(catch_curve) 
+
+mean(NaRV.omit(CC5$catch_curve))
+sd(NaRV.omit(CC5$catch_curve))
+
+#
+CC10 <- normalised_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 1) %>%
+  select(catch_curve) 
+
+mean(NaRV.omit(CC10$catch_curve))
+sd(NaRV.omit(CC10$catch_curve))
+
+#
+CC20 <- normalised_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 3) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC20$catch_curve))
+sd(NaRV.omit(CC20$catch_curve))
+
+#
+CC50 <- normalised_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 5) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC50$catch_curve))
+sd(NaRV.omit(CC50$catch_curve))
+
+#
+CC100 <- normalised_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 10) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC100$catch_curve))
+sd(NaRV.omit(CC100$catch_curve))
+
+#
+CC500 <- normalised_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 25) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC500$catch_curve))
+sd(NaRV.omit(CC500$catch_curve))
+
+#
+CC <- normalised_data %>%
+ select(g_change_percent, catch_curve) %>%
+  filter(g_change_percent == 50) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC$catch_curve))
+sd(NaRV.omit(CC$catch_curve))
+```
+## weighted catch curve
+```{r}
+#catch curve
+wCC5 <- normalised_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 0) %>%
+  select(weighted_catch_curve) 
+
+mean(NaRV.omit(wCC5$weighted_catch_curve))
+sd(NaRV.omit(wCC5$weighted_catch_curve))
+
+#
+wCC10 <- normalised_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 1) %>%
+  select(weighted_catch_curve) 
+
+mean(NaRV.omit(wCC10$weighted_catch_curve))
+sd(NaRV.omit(wCC10$weighted_catch_curve))
+
+#
+wCC20 <- normalised_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 3) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC20$weighted_catch_curve))
+sd(NaRV.omit(wCC20$weighted_catch_curve))
+
+#
+wCC50 <- normalised_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 5) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC50$weighted_catch_curve))
+sd(NaRV.omit(wCC50$weighted_catch_curve))
+
+#
+wCC100 <- normalised_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 10) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC100$weighted_catch_curve))
+sd(NaRV.omit(wCC100$weighted_catch_curve))
+
+#
+wCC500 <- normalised_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 25) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC500$weighted_catch_curve))
+sd(NaRV.omit(wCC500$weighted_catch_curve))
+
+#
+wCC <- normalised_data %>%
+ select(g_change_percent, weighted_catch_curve) %>%
+  filter(g_change_percent == 50) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC$weighted_catch_curve))
+sd(NaRV.omit(wCC$weighted_catch_curve))
+```
+
+
+## Chapman Robson
+```{r}
+#Chapman robson
+CR5 <- normalised_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 0) %>%
+  select(Chapman_Robson) 
+
+mean(NaRV.omit(CR5$Chapman_Robson))
+sd(NaRV.omit(CR5$Chapman_Robson))
+
+#
+CR10 <- normalised_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 1) %>%
+  select(Chapman_Robson) 
+
+mean(NaRV.omit(CR10$Chapman_Robson))
+sd(NaRV.omit(CR10$Chapman_Robson))
+
+#
+CR20 <- normalised_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 3) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR20$Chapman_Robson))
+sd(NaRV.omit(CR20$Chapman_Robson))
+
+#
+CR50 <- normalised_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 5) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR50$Chapman_Robson))
+sd(NaRV.omit(CR50$Chapman_Robson))
+
+#
+CR100 <- normalised_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 10) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR100$Chapman_Robson))
+sd(NaRV.omit(CR100$Chapman_Robson))
+
+#
+CR500 <- normalised_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 25) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR500$Chapman_Robson))
+sd(NaRV.omit(CR500$Chapman_Robson))
+
+#
+CR <- normalised_data %>%
+ select(g_change_percent, Chapman_Robson) %>%
+  filter(g_change_percent == 50) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR$Chapman_Robson))
+sd(NaRV.omit(CR$Chapman_Robson))
+```
+
+## stan size
+```{r}
+#Stan size
+SA5 <- normalised_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 0) %>%
+  select(stan_size) 
+
+mean(NaRV.omit(SA5$stan_size))
+sd(NaRV.omit(SA5$stan_size))
+
+#
+SA10 <- normalised_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 1) %>%
+  select(stan_size) 
+
+mean(NaRV.omit(SA10$stan_size))
+sd(NaRV.omit(SA10$stan_size))
+
+#
+SA20 <- normalised_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 3) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA20$stan_size))
+sd(NaRV.omit(SA20$stan_size))
+
+#
+SA50 <- normalised_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 5) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA50$stan_size))
+sd(NaRV.omit(SA50$stan_size))
+
+#
+SA100 <- normalised_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 10) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA100$stan_size))
+sd(NaRV.omit(SA100$stan_size))
+
+#
+SA500 <- normalised_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 25) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA500$stan_size))
+sd(NaRV.omit(SA500$stan_size))
+
+#
+SA <- normalised_data %>%
+ select(g_change_percent, stan_size) %>%
+  filter(g_change_percent == 50) %>%
+  select(stan_size) 
+
+
+mean(NaRV.omit(SA$stan_size))
+sd(NaRV.omit(SA$stan_size))
+
+```

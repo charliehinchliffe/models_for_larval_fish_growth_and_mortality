@@ -1,0 +1,121 @@
+---
+title: "Demo of trim_to_mode"
+author: "Charles Hinchliffe"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+This notebook gives a demonstraiton of how the trim_to_mode function is used to return better estimates of $\hat{z}$ when there is variance in $s_0$ or 'net extrusion' applied when generating a population, such that max $n$ is not at $s=0$.
+
+First, I show how this effects results from a 'literature aged scenario' using the stan_size_known_g, followed by the full stan_size_growth model. Note that variability in s0 has a greater effect on the first case. 
+
+# Packages and functions
+```{r}
+library(tidyverse)
+library(rstan)
+
+#Data generation and manipulation functions
+source("R/generate_sample.R")
+source("R/trim_data_to_mode.R")
+source("R/create_bins.R")
+
+#prepare data for stan model
+source("R/data_for_stan_size.R")
+source("R/data_for_stan_size_growth_without_var.R")
+
+#Plotting functions
+source("R/plot_size_dist.R")
+```
+
+
+# Generate population with variance in individual s0.
+```{r}
+#simulate population
+data <- simulate_catch_data(R = 1000,
+                            s0_av = 3,
+                            log10s0_sd = 0.03,
+                            g_av = 0.21,
+                            log10g_sd = 0.00,
+                            z_av = 0.25, 
+                            log10z_sd = 0.0)
+
+data <- create_bins(data)
+#for plotting
+pars <- list(R = 1000,
+             s0_av = 3,
+             log10s0_sd = 0.05,
+             g_av = 0.21,
+             log10g_sd = 0,
+             z_av = 0.25, 
+             log10z_sd = 0,
+             bin_width_age = 1,
+             bin_width_size = 0.1)
+
+plot_size_dist(data, pars)
+```
+
+# Read in stan models
+```{r}
+#size distribution model with known G
+ret_size <- stan_model(file="stan/mortality_size_known_g.stan")
+
+#size distribution model and growth model
+ret_size_growth <- stan_model(file="stan/mortality_size_growth.stan")
+```
+
+# Size model with known G
+Trim_to_mode = False
+```{r}
+##Prepare data for stan model
+data_no_trim <- data_for_stan_size(data, trim_to_mode = FALSE)
+
+##sample from stan model
+fit_no_trim <- sampling(ret_size, data = data_no_trim, iter = 999, chains = 2)
+
+print(fit_no_trim,  probs=c(0.025, 0.5, 0.975))
+#stan_trace(fit_no_trim, pars = c("Z", "g", "R"), inc_warmup = TRUE)
+```
+
+With trim_to_mode = TRUE
+```{r}
+#select data sample from stan known g model
+data_trimmed  <- data_for_stan_size(data, 
+                            trim_to_mode = TRUE,
+                            add_to_cut = 0)
+
+##sample from stan model
+fit_trimmed  <- sampling(ret_size, data = data_trimmed , iter = 999, chains = 2)
+
+print(fit_trimmed,  probs=c(0.025, 0.5, 0.975))
+#stan_trace(fit_trimmed, pars = c("Z", "g", "R"), inc_warmup = TRUE)
+```
+
+
+# Size and Growth model
+Trim_to_mode = False
+```{r}
+##Prepare data for stan model
+data_no_trim <- data_for_stan_size_growth_without_var(data = data, n_samples_each = 5)
+
+##sample from stan model
+fit_no_trim <- sampling(ret_size_growth, data = data_no_trim, iter = 999, chains = 2)
+
+print(fit_no_trim,  probs=c(0.025, 0.5, 0.975))
+#stan_trace(fit_no_trim, pars = c("Z", "g", "R"), inc_warmup = TRUE)
+```
+
+With trim_to_mode = TRUE
+```{r}
+data_trimmed <- data_for_stan_size_growth_without_var(data = data,
+                                                  n_samples_each = 5,
+                                                  trim_to_mode = TRUE,
+                                                  add_to_cut = 0) #NB add_to_cut adjusts where the size class is trimmed
+
+fit_trimmed <- sampling(ret_size_growth, data = data_trimmed, iter = 999, chains = 2)
+
+print(fit_trimmed,  probs=c(0.025, 0.5, 0.975))
+#stan_trace(fit_trimmed, pars = c("Z", "g", "R"), inc_warmup = TRUE)
+```
+
+

@@ -1,0 +1,1402 @@
+---
+title: "Comparing the effect of sample size on model efficacy, when every fish has been aged"
+author: "Charles Hinchliffe"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+
+The .rmd demonstartes the effect of sample size on classic catch-curve methods, our continous catch-curve, and our R/Z age-distribution model. To 'age' the data we take the ages that are produced when a population is simulated using simulate_catch_data(). 
+
+# Load require packages and functions
+
+```{r}
+library(rstan)
+library(tidyverse)
+library(rstan)
+library(dplyr)
+library(ggplot2)
+library(FSA)
+library(fishmethods)
+library(pracma)
+library(bayesplot)
+library(bayesboot)
+library(see)
+library(IDPmisc)
+
+#agesurv funtion from 'fishmethods' with decimal rounding removed
+source("R/agesurv_no_rounding.R")
+
+#Data generation and manipulation functions
+source("R/generate_sample.R")
+source("R/trim_data_to_mode.R")
+source("R/create_bins.R")
+
+#For re-aging
+source("R/real_aged_method.R")
+
+#prapre data for stan model
+source("R/data_for_stan_age.R")
+
+
+#Plotting functions
+source("R/plot_age_dist.R")
+source("R/plot_size_dist.R")
+source("R/element_textbox.R")
+```
+
+#Select sample sizes
+hatches_per_day <- c(10,
+                     50,
+                     100,
+                     200,
+                     500)
+```{r}
+
+hatches_per_day <- c(5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     5,5,5,5,5,5,5,5,5,5,
+                     
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     10,10,10,10,10,10,10,10,10,10,
+                     
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     20,20,20,20,20,20,20,20,20,20,
+                     
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     50,50,50,50,50,50,50,50,50,50,
+                     
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     100,100,100,100,100,100,100,100,100,100,
+                     
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     200,200,200,200,200,200,200,200,200,200,
+                     
+                     
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500,
+                     500,500,500,500,500,500,500,500,500,500
+                     )
+
+output_data <- as.data.frame(hatches_per_day)
+hatches_per_day
+
+
+```
+
+
+
+#Generate data
+```{r}
+#for plotting
+pars <- list(R = 500,
+             s0_av = 3,
+             log10s0_sd = 0,
+             g_av = 0.21,
+             log10g_sd = 0,
+             z_av = 0.25, 
+             log10z_sd = 0,
+             bin_width_age = 1,
+             bin_width_size = 0.1)
+
+#simulate population
+data <- simulate_catch_data(R = 500,
+                            s0_av = 3,
+                            log10s0_sd = 0.0,
+                            g_av = 0.21,
+                            log10g_sd = 0.00,
+                            z_av = 0.25, 
+                            log10z_sd = 0.0)
+```
+
+#plot simulated population
+```{r}
+plot_age_dist(data,pars)
+plot_size_dist(data,pars)
+```
+
+
+#Read in stan models
+```{r, eval = FALSE}
+#age distribution model estimates R and Z
+ret_age <- stan_model(file="stan/mortality_age.stan")
+
+```
+
+
+#Run models
+```{r,eval=FALSE}
+tryCatch(
+for(i in seq_len(nrow(output_data))){
+
+#generate data  
+data <- simulate_catch_data(R = hatches_per_day[i],
+                            s0_av = 3,
+                            log10s0_sd = 0.0,
+                            g_av = 0.21,
+                            log10g_sd = 0.00,
+                            z_av = 0.25, 
+                            log10z_sd = 0.0) 
+
+
+#create age and size bins
+data <- create_bins(data,
+                    bin_width_age = 1,
+                    bin_width_size = 0.1)
+
+
+
+###select subset of individuals for 'ageing' and apply linear model or ALK. Eg: simulating age/length(or weight) measurements made in lab from subset of individuals across all ages/sizes 
+
+data <- real_aged_data(data = data)
+
+#get sample size
+output_data$sample_size[i] <- nrow(data)
+
+
+#Sort ages into age bins, 1 day width
+bin_width <- 1
+
+cat_data <- lencat(~estimated_age, data = data, startcat = 0, w = bin_width, vname = "ageCat") ## uses agecat data, bins set at 1 day
+
+## mode function for fully recruited age
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+
+# Calculate the mode using the user function.
+recruit_age <- getmode(cat_data$ageCat)
+recruit_age
+
+ 
+#Catch-curve method (Linear regression)
+catch_curve <- agesurv2(age=cat_data$ageCat, full = recruit_age, estimate = "z", method = "lr") ##
+
+output_data$catch_curve[i] <- as.numeric(catch_curve$`results`[3]) # extract z
+
+#truncated catch-curve (weighted Linear regression)
+trunc_curve <- agesurv2(age=cat_data$ageCat, full = recruit_age, estimate = "z", method = "wlr") ##
+
+output_data$weighted_catch_curve[i] <- as.numeric(trunc_curve$`results`[3])# extract z
+
+
+
+#Chapman-robson method
+CRZ <- agesurv2(age=cat_data$ageCat, full = recruit_age, estimate = "z", method = "crcb") 
+
+output_data$Chapman_Robson[i] <- as.numeric(CRZ$`results`[3]) # extract z
+
+
+
+#select data sample from stan age model
+data2 <- data_for_stan_age(data = data, bin_width_age = 1)
+
+##sample from stan model
+fit_age <- sampling(ret_age, data = data2, iter = 999, chains = 3)
+
+output_data$stan_age[i] <- mean(rstan::extract(fit_age, pars="Z")[["Z"]])
+
+
+}, error=function(e) e
+)
+
+saveRDS(output_data, "output/all_ages_R.rds")
+```
+
+# Read in output
+```{r}
+output_data <- readRDS("output/all_ages_R.rds")
+```
+
+
+```{r}
+head(output_data)
+
+output_data$hatches_per_day <- hatches_per_day
+```
+
+# Plot output
+
+
+Make long format data
+```{r}
+keycol <- "model"
+valuecol <- "z"
+gathercols <- c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_age")
+
+output_data_long <- gather_(output_data, keycol, valuecol, gathercols)
+
+head(output_data_long)
+```
+
+Plot long format trend line
+```{r}
+p4 <- ggplot(output_data_long, aes(hatches_per_day, z, group = model, col = model)) +
+  geom_point() +
+  geom_smooth(method = "loess", se=F) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_classic()
+
+p4
+```
+ 
+Plot R groups seperately  
+```{r, eval = FALSE}
+#5 hatches
+R5 <- subset(output_data_long, hatches_per_day == 5)
+
+p5 <- ggplot(R5, aes(x = model, y = z, fill = model, group = model)) +
+ geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("R = 5, mean sample size = ~20") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p5
+
+#10 hatches per day
+R10 <- subset(output_data_long, hatches_per_day == 10)
+
+p5 <- ggplot(R10, aes(x = model, y = z, fill = model, group = model)) +
+ geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("R = 10, mean sample size = ~40") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p5
+
+R20 <- subset(output_data_long, hatches_per_day == 20)
+
+p55 <- ggplot(R20, aes(x = model, y = z, fill = model, group = model)) +
+ geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("R = 20, mean sample size = ~80") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p55
+
+##50 hatches per day
+R50 <- subset(output_data_long, hatches_per_day == 50)
+mean(R50$sample_size)
+
+p6 <- ggplot(R50, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("R = 50, mean sample size = ~200") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p6
+
+#100 hatches per day
+R100 <- subset(output_data_long, hatches_per_day == 100)
+mean(R100$sample_size)
+
+p7 <- ggplot(R100, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("R = 100, mean sample size = ~400") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p7
+
+#200 hatches per day
+R200 <- subset(output_data_long, hatches_per_day == 200)
+mean(R200$sample_size)
+
+p8 <- ggplot(R200, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("R = 200, mean sample size = ~800") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p8
+
+#500 hatches per day
+R500 <- subset(output_data_long, hatches_per_day == 500)
+mean(R500$sample_size)
+
+p9 <- ggplot(R500, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("R = 500, mean sample size = ~2000") +
+  xlab("Model") + ylab("mean Z")# +
+  #ylim(0,0.6)
+
+p9
+
+
+#1000 hatches per day
+R1000 <- subset(output_data_long, hatches_per_day == 1000)
+mean(R1000$sample_size)
+
+p10 <- ggplot(R1000, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("R = 1000, mean sample size = ~4000") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p10
+```
+
+# Facet figure
+Device size 6 x 13inch
+```{r}
+#order levels in data for plotting
+data <- output_data_long %>% mutate(model = factor(model, levels=c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_age")))
+
+fac_plot <- ggplot(data, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0.25, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "right", plot.title = element_textbox(color = "black", hjust = 0.5, margin = margin(t = 3, b = 3), face = "italic")) +
+  scale_fill_material_d(palette = "ice") +
+  ylab(expression(bar(Z))) +
+  facet_wrap(~hatches_per_day, nrow = 1, ncol = 7) + labs(title = "R")
+ 
+fac_plot
+
+all_age_ss_fac_plot <- ggplot(data, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0.25, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "none", plot.title = element_textbox(color = "black", hjust = 0.5, margin = margin(t = 3, b = 3), face = "italic")) +
+  scale_fill_material_d(palette = "ice") +
+  ylab(expression(bar(z))) +
+  facet_wrap(~hatches_per_day, nrow = 1, ncol = 7) + labs(title = "R")
+ 
+all_age_ss_fac_plot
+```
+
+combine all ages plots 
+```{r}
+library(cowplot)
+
+figure_3 <- plot_grid(all_age_ss_fac_plot, all_age_z_var_fac_plot, align = c("hv"),
+  axis = c("none"),
+  nrow = 2, ncol = 1, rel_widths = 1, rel_heights = 1,
+  labels = c('A', 'B'))
+
+figure_3
+```
+
+
+# Extract data for summary table
+## catch curve
+```{r}
+#catch curve
+CC5 <- output_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 5) %>%
+  select(catch_curve) 
+
+mean(NaRV.omit(CC5$catch_curve))
+sd(NaRV.omit(CC5$catch_curve))
+
+#
+CC10 <- output_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 10) %>%
+  select(catch_curve) 
+
+mean(NaRV.omit(CC10$catch_curve))
+sd(NaRV.omit(CC10$catch_curve))
+
+#
+CC20 <- output_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 20) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC20$catch_curve))
+sd(NaRV.omit(CC20$catch_curve))
+
+#
+CC50 <- output_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 50) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC50$catch_curve))
+sd(NaRV.omit(CC50$catch_curve))
+
+#
+CC200 <- output_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 200) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC200$catch_curve))
+sd(NaRV.omit(CC200$catch_curve))
+
+#
+CC100 <- output_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 100) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC100$catch_curve))
+sd(NaRV.omit(CC100$catch_curve))
+
+#
+CC500 <- output_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 500) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC500$catch_curve))
+sd(NaRV.omit(CC500$catch_curve))
+```
+## weighted catch curve
+```{r}
+#catch curve
+wCC5 <- output_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 5) %>%
+  select(weighted_catch_curve) 
+
+mean(NaRV.omit(wCC5$weighted_catch_curve))
+sd(NaRV.omit(wCC5$weighted_catch_curve))
+
+#
+wCC10 <- output_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 10) %>%
+  select(weighted_catch_curve) 
+
+mean(NaRV.omit(wCC10$weighted_catch_curve))
+sd(NaRV.omit(wCC10$weighted_catch_curve))
+
+#
+wCC20 <- output_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 20) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC20$weighted_catch_curve))
+sd(NaRV.omit(wCC20$weighted_catch_curve))
+
+#
+wCC50 <- output_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 50) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC50$weighted_catch_curve))
+sd(NaRV.omit(wCC50$weighted_catch_curve))
+
+#
+wCC100 <- output_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 100) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC100$weighted_catch_curve))
+sd(NaRV.omit(wCC100$weighted_catch_curve))
+
+#
+wCC200 <- output_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 200) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC200$weighted_catch_curve))
+sd(NaRV.omit(wCC200$weighted_catch_curve))
+
+#
+wCC500 <- output_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 500) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC500$weighted_catch_curve))
+sd(NaRV.omit(wCC500$weighted_catch_curve))
+```
+
+
+## Chapman Robson
+```{r}
+#Chapman robson
+CR5 <- output_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 5) %>%
+  select(Chapman_Robson) 
+
+mean(NaRV.omit(CR5$Chapman_Robson))
+sd(NaRV.omit(CR5$Chapman_Robson))
+
+#
+CR10 <- output_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 10) %>%
+  select(Chapman_Robson) 
+
+mean(NaRV.omit(CR10$Chapman_Robson))
+sd(NaRV.omit(CR10$Chapman_Robson))
+
+#
+CR20 <- output_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 20) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR20$Chapman_Robson))
+sd(NaRV.omit(CR20$Chapman_Robson))
+
+#
+CR50 <- output_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 50) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR50$Chapman_Robson))
+sd(NaRV.omit(CR50$Chapman_Robson))
+
+#
+CR100 <- output_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 100) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR100$Chapman_Robson))
+sd(NaRV.omit(CR100$Chapman_Robson))
+
+#
+CR200 <- output_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 200) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR200$Chapman_Robson))
+sd(NaRV.omit(CR200$Chapman_Robson))
+
+#
+CR500 <- output_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 500) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR500$Chapman_Robson))
+sd(NaRV.omit(CR500$Chapman_Robson))
+```
+
+## stan age
+```{r}
+#Chapman robson
+SA5 <- output_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 5) %>%
+  select(stan_age) 
+
+mean(NaRV.omit(SA5$stan_age))
+sd(NaRV.omit(SA5$stan_age))
+
+#
+SA10 <- output_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 10) %>%
+  select(stan_age) 
+
+mean(NaRV.omit(SA10$stan_age))
+sd(NaRV.omit(SA10$stan_age))
+
+#
+SA20 <- output_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 20) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA20$stan_age))
+sd(NaRV.omit(SA20$stan_age))
+
+#
+SA50 <- output_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 50) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA50$stan_age))
+sd(NaRV.omit(SA50$stan_age))
+
+#
+SA100 <- output_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 100) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA100$stan_age))
+sd(NaRV.omit(SA100$stan_age))
+
+#
+SA200 <- output_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 200) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA200$stan_age))
+sd(NaRV.omit(SA200$stan_age))
+
+#
+SA500 <- output_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 500) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA500$stan_age))
+sd(NaRV.omit(SA500$stan_age))
+```
+
+# Normalised results
+## Normalise data around mean z 0.25
+
+```{r}
+normalised_data <- output_data
+
+normalised_data$catch_curve <- ((normalised_data$catch_curve/0.25)*100)-100
+
+
+normalised_data$weighted_catch_curve <- ((normalised_data$weighted_catch_curve/0.25)*100)-100
+
+
+normalised_data$Chapman_Robson <- ((normalised_data$Chapman_Robson/0.25)*100)-100
+
+
+normalised_data$stan_age <- ((normalised_data$stan_age/0.25)*100)-100
+
+head(normalised_data)
+```
+
+
+
+## Plot output
+
+Make long format data
+```{r}
+keycol <- "model"
+valuecol <- "z"
+gathercols <- c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_age")
+
+normal_data_long <- gather_(normalised_data, keycol, valuecol, gathercols)
+
+head(normal_data_long)
+tail(normal_data_long)
+```
+
+
+## Facet plot
+
+Device size 6 x 13inch
+```{r}
+
+data <- normal_data_long %>% mutate(model = factor(model, levels=c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_age")))
+  
+data
+
+normal_fac_plot <- ggplot(data, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "right", plot.title = element_textbox(color = "black", hjust = 0.5, margin = margin(t = 3, b = 3), face = "italic")) +
+  scale_fill_material_d(palette = "ice") +
+  ylab('%', expression(bar(Z))) + ylim(-200,200) +
+  facet_wrap(~hatches_per_day, nrow = 1, ncol = 7) + labs(title = "R")#labs(title = expression('Variability around'~ bar(Z)))
+ 
+
+fac_plot
+
+normal_all_age_ss_var_fac_plot <- ggplot(data, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "none", plot.title = element_textbox(color = "black", hjust = 0.5, margin = margin(t = 3, b = 3), face = "italic")) +
+  scale_fill_material_d(palette = "ice") +
+  ylab(expression(bar(z))) + ylim(-200,200) +
+  facet_wrap(~hatches_per_day, nrow = 1, ncol = 7) + labs(title = "R") #+  
+  #theme(plot.title = element_textbox(hjust = 0.5, margin = margin(t = 5, b = 5)) #labs(title = expression('*Variability around*'~ bar(Z)))
+ 
+
+normal_all_age_ss_var_fac_plot
+```
+
+
+
+# Extract normalised data for summary table
+## catch curve
+```{r}
+#catch curve
+CC5 <- normalised_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 5) %>%
+  select(catch_curve) 
+
+mean(NaRV.omit(CC5$catch_curve))
+sd(NaRV.omit(CC5$catch_curve))
+
+#
+CC10 <- normalised_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 10) %>%
+  select(catch_curve) 
+
+mean(NaRV.omit(CC10$catch_curve))
+sd(NaRV.omit(CC10$catch_curve))
+
+#
+CC20 <- normalised_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 20) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC20$catch_curve))
+sd(NaRV.omit(CC20$catch_curve))
+
+#
+CC50 <- normalised_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 50) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC50$catch_curve))
+sd(NaRV.omit(CC50$catch_curve))
+
+#
+CC100 <- normalised_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 100) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC100$catch_curve))
+sd(NaRV.omit(CC100$catch_curve))
+
+#
+CC500 <- normalised_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 200) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC500$catch_curve))
+sd(NaRV.omit(CC500$catch_curve))
+
+#
+CC <- normalised_data %>%
+ select(hatches_per_day, catch_curve) %>%
+  filter(hatches_per_day == 500) %>%
+  select(catch_curve) 
+
+
+mean(NaRV.omit(CC$catch_curve))
+sd(NaRV.omit(CC$catch_curve))
+```
+## weighted catch curve
+```{r}
+#catch curve
+wCC5 <- normalised_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 5) %>%
+  select(weighted_catch_curve) 
+
+mean(NaRV.omit(wCC5$weighted_catch_curve))
+sd(NaRV.omit(wCC5$weighted_catch_curve))
+
+#
+wCC10 <- normalised_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 10) %>%
+  select(weighted_catch_curve) 
+
+mean(NaRV.omit(wCC10$weighted_catch_curve))
+sd(NaRV.omit(wCC10$weighted_catch_curve))
+
+#
+wCC20 <- normalised_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 20) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC20$weighted_catch_curve))
+sd(NaRV.omit(wCC20$weighted_catch_curve))
+
+#
+wCC50 <- normalised_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 50) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC50$weighted_catch_curve))
+sd(NaRV.omit(wCC50$weighted_catch_curve))
+
+#
+wCC100 <- normalised_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 100) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC100$weighted_catch_curve))
+sd(NaRV.omit(wCC100$weighted_catch_curve))
+
+#
+wCC200 <- normalised_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 200) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC200$weighted_catch_curve))
+sd(NaRV.omit(wCC200$weighted_catch_curve))
+
+#
+wCC500 <- normalised_data %>%
+ select(hatches_per_day, weighted_catch_curve) %>%
+  filter(hatches_per_day == 500) %>%
+  select(weighted_catch_curve) 
+
+
+mean(NaRV.omit(wCC500$weighted_catch_curve))
+sd(NaRV.omit(wCC500$weighted_catch_curve))
+```
+
+
+## Chapman Robson
+```{r}
+#Chapman robson
+CR5 <- normalised_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 5) %>%
+  select(Chapman_Robson) 
+
+mean(NaRV.omit(CR5$Chapman_Robson))
+sd(NaRV.omit(CR5$Chapman_Robson))
+
+#
+CR10 <- normalised_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 10) %>%
+  select(Chapman_Robson) 
+
+mean(NaRV.omit(CR10$Chapman_Robson))
+sd(NaRV.omit(CR10$Chapman_Robson))
+
+#
+CR20 <- normalised_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 20) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR20$Chapman_Robson))
+sd(NaRV.omit(CR20$Chapman_Robson))
+
+#
+CR50 <- normalised_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 50) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR50$Chapman_Robson))
+sd(NaRV.omit(CR50$Chapman_Robson))
+
+#
+CR100 <- normalised_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 100) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR100$Chapman_Robson))
+sd(NaRV.omit(CR100$Chapman_Robson))
+
+#
+CR200 <- normalised_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 200) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR200$Chapman_Robson))
+sd(NaRV.omit(CR200$Chapman_Robson))
+
+#
+CR500 <- normalised_data %>%
+ select(hatches_per_day, Chapman_Robson) %>%
+  filter(hatches_per_day == 500) %>%
+  select(Chapman_Robson) 
+
+
+mean(NaRV.omit(CR500$Chapman_Robson))
+sd(NaRV.omit(CR500$Chapman_Robson))
+```
+
+## stan age
+```{r}
+#
+SA5 <- normalised_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 5) %>%
+  select(stan_age) 
+
+mean(NaRV.omit(SA5$stan_age))
+sd(NaRV.omit(SA5$stan_age))
+
+#
+SA10 <- normalised_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 10) %>%
+  select(stan_age) 
+
+mean(NaRV.omit(SA10$stan_age))
+sd(NaRV.omit(SA10$stan_age))
+
+#
+SA20 <- normalised_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 20) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA20$stan_age))
+sd(NaRV.omit(SA20$stan_age))
+
+#
+SA50 <- normalised_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 50) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA50$stan_age))
+sd(NaRV.omit(SA50$stan_age))
+
+#
+SA100 <- normalised_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 100) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA100$stan_age))
+sd(NaRV.omit(SA100$stan_age))
+
+#
+SA200 <- normalised_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 200) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA200$stan_age))
+sd(NaRV.omit(SA200$stan_age))
+
+#
+SA500 <- normalised_data %>%
+ select(hatches_per_day, stan_age) %>%
+  filter(hatches_per_day == 500) %>%
+  select(stan_age) 
+
+
+mean(NaRV.omit(SA500$stan_age))
+sd(NaRV.omit(SA500$stan_age))
+```
+
+
+
+
+# combine all ages plots 
+```{r}
+figure_3 <- plot_grid(normal_all_age_ss_var_fac_plot, 
+normal_all_age_z_var_fac_plot, align = c("hv"),
+  axis = c("none"),
+  nrow = 2, ncol = 1, rel_widths = 1, rel_heights = 1,
+  labels = c('A', 'B'))
+
+figure_3
+```

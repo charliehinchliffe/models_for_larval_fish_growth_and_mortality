@@ -1,0 +1,680 @@
+---
+title: "Comparing the effect of s0 variability on model efficacy, when every fish has been aged"
+author: "Charles Hinchliffe"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+The .rmd demonstartes the effect of variation in s0 on classic catch-curve methods, our continous catch-curve, and our R/Z age-distribution model. To 'age' the data we take the ages that are produced when a population is simulated using simulate_catch_data(). 
+
+
+# Load require packages and functions
+
+```{r}
+library(rstan)
+library(tidyverse)
+library(rstan)
+library(dplyr)
+library(ggplot2)
+library(see)
+library(FSA)
+library(fishmethods)
+library(pracma)
+library(bayesplot)
+library(bayesboot)
+library(see)
+
+#agesurv funtion from 'fishmethods' with decimal rounding removed
+source("R/agesurv_no_rounding.R")
+
+#Data generation and manipulation functions
+source("R/generate_sample.R")
+source("R/trim_data_to_mode.R")
+source("R/create_bins.R")
+
+#For re-aging
+source("R/real_aged_method.R")
+
+#prapre data for stan model
+source("R/data_for_stan_age.R")
+
+
+#Plotting functions
+source("R/plot_age_dist.R")
+source("R/plot_size_dist.R")
+```
+
+
+# Example plots
+
+Vary s0 and observe what happens to agr and size dist of population.
+```{r}
+#for plotting
+pars <- list(R = 1000,
+             s0_av = 3,
+             log10s0_sd = 0,
+             g_av = 0.21,
+             log10g_sd = 0,
+             z_av = 0.25, 
+             log10z_sd = 0.0,
+             bin_width_age = 1,
+             bin_width_size = 0.1)
+
+#simulate population
+data <- simulate_catch_data(R = 1000,
+                            s0_av = 3,
+                            log10s0_sd = 0.0,
+                            g_av = 0.21,
+                            log10g_sd = 0.00,
+                            z_av = 0.25, 
+                            log10z_sd = 0.0)
+
+data2 <- simulate_catch_data(R = 1000,
+                            s0_av = 3,
+                            log10s0_sd = 0.05,
+                            g_av = 0.21,
+                            log10g_sd = 0.00,
+                            z_av = 0.25, 
+                            log10z_sd = 0.00)
+
+```
+
+# Plot simulated population
+```{r}
+plot_age_dist(data,pars)
+plot_age_dist(data2,pars)
+
+
+#sizes
+plot_size_dist(data,pars)
+plot_size_dist(data2,pars)
+
+
+```
+
+
+# Read in stan models
+```{r, eval = FALSE}
+#age distribution model estimates R and Z
+ret_age <- stan_model(file="stan/mortality_age.stan")
+
+```
+
+
+# Select S0_av variability 
+```{r}
+variance <- c(0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,
+              0,0,0,0,0,0,0,0,0,0,
+              
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,0.005,
+              
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1
+              )
+
+
+
+
+output_data <- as.data.frame(variance)
+
+```
+
+
+# Run models 
+```{r, eval = FALSE}
+tryCatch(
+for(i in seq_len(nrow(output_data))){
+
+  
+#generate data  
+data <- simulate_catch_data(R = 1000,
+                            s0_av = 3,
+                            log10s0_sd = variance[i],
+                            g_av = 0.21,
+                            log10g_sd = 0.00,
+                            z_av = 0.25, 
+                            log10z_sd = 0) 
+
+
+#create age and size bins
+data <- create_bins(data,
+                    bin_width_age = 1,
+                    bin_width_size = 0.1)
+
+
+###select subset of individuals for 'ageing' and apply linear model or ALK. Eg: simulating age/length(or weight) measurements made in lab from subset of individuals across all ages/sizes 
+
+data <- real_aged_data(data = data)
+
+#get sample size
+output_data$sample_size[i] <- nrow(data)
+
+
+#Sort ages into age bins, 1 day width
+bin_width <- 1
+
+
+cat_data <- lencat(~estimated_age, data = data, startcat = 0, w = bin_width, vname = "ageCat") ## uses agecat data, bins set at 1 day
+
+##re-adjust work-around for 0's
+cat_data$ageCat <- (cat_data$ageCat-25)
+data$estimated_age <- (data$estimated_age-25) 
+
+## mode function for fully recruited age
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+
+# Calculate the mode using the user function.
+recruit_age <- getmode(cat_data$ageCat)
+recruit_age 
+
+min_est_age = min(cat_data$ageCat)
+ 
+#Catch-curve method (Linear regression), use recruit_age to truncate, or min_est_age for all ages
+catch_curve <- agesurv2(age=cat_data$ageCat, full = min_est_age, estimate = "z", method = "lr") ##
+
+output_data$catch_curve[i] <- as.numeric(catch_curve$`results`[3]) # extract z
+
+#truncated catch-curve (weighted Linear regression)
+trunc_curve <- agesurv2(age=cat_data$ageCat, full = min_est_age, estimate = "z", method = "wlr") ##
+
+output_data$weighted_catch_curve[i] <- as.numeric(trunc_curve$`results`[3])# extract z
+
+
+
+#Chapman-robson method
+CRZ <- agesurv2(age=cat_data$ageCat, full = min_est_age, estimate = "z", method = "crcb") 
+
+output_data$Chapman_Robson[i] <- as.numeric(CRZ$`results`[3]) # extract z
+
+
+#select data sample from stan known g model
+data2 <- data_for_stan_age(data = data, bin_width_age = 1)
+
+##sample from stan model
+fit_age <- sampling(ret_age, data = data2, iter = 999, chains = 2)
+
+output_data$stan_age[i] <- mean(rstan::extract(fit_age, pars="Z")[["Z"]])
+
+
+}, error=function(e) e
+)
+
+saveRDS(output_data, "output/all_ages_s0.rds")
+```
+
+# Read in output
+
+```{r}
+output_data <- readRDS("output/all_ages_s0.rds")
+```
+
+
+```{r}
+head(output_data)
+```
+
+# Plot output
+
+Make long format data
+```{r}
+keycol <- "model"
+valuecol <- "z"
+gathercols <- c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_age")
+
+output_data_long <- gather_(output_data, keycol, valuecol, gathercols)
+
+head(output_data_long)
+```
+
+Plot long format trend line
+```{r}
+p4 <- ggplot(output_data_long, aes(variance, z, group = model, col = model)) +
+  geom_point() +
+  geom_smooth(method = "loess", se=F) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_classic()
+
+p4
+```
+
+
+
+
+Plot var groups seperately  
+
+variance <- c(0,0,0,0,0,0,0,0,0,0,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+```{r, eval = FALSE}
+#Z_var = 0.00
+var0 <- subset(output_data_long, variance == 0)
+
+p5 <- ggplot(var0, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p5
+
+##Z_var = 0.01
+var0.01 <- subset(output_data_long, variance == 0.01)
+
+p6 <- ggplot(var0.01, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.01") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p6
+
+#Z_var = 0.025
+var0.02 <- subset(output_data_long, variance == 0.02)
+
+
+p7 <- ggplot(var0.02, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.02") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p7
+
+#var = 0.03
+var0.03 <- subset(output_data_long, variance == 0.03)
+
+
+p8 <- ggplot(var0.03, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.03") +
+  xlab("Model") + ylab("mean Z") # +
+ # ylim(0,0.6)
+
+p8
+
+#var = 0.05
+var0.05<- subset(output_data_long, variance == 0.05)
+
+
+p9 <- ggplot(var0.05, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.05") +
+  xlab("Model") + ylab("mean Z") # +
+ # ylim(0,0.6)
+
+p9
+#var = 0.1
+var0.1 <- subset(output_data_long, variance == 0.1)
+
+
+p10 <- ggplot(var0.1, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.1") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p10
+```
+
+
+# Facet plot
+
+
+
+Device size 6 x 13inch
+```{r}
+fac_plot2 <- ggplot(output_data_long, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0.25, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "right") +
+  scale_fill_material_d(palette = "ice") +
+  ylab(expression(hat(Z))) +
+  facet_wrap(~variance, nrow = 1, ncol = 7)
+ 
+
+fac_plot2
+```
+
+
+
+
+# Run models WITH trimming to mode
+```{r, eval = FALSE}
+tryCatch(
+for(i in seq_len(nrow(output_data))){
+
+  
+#generate data  
+data <- simulate_catch_data(R = 1000,
+                            s0_av = 3,
+                            log10s0_sd = variance[i],
+                            g_av = 0.21,
+                            log10g_sd = 0.00,
+                            z_av = 0.25, 
+                            log10z_sd = 0) 
+
+
+#create age and size bins
+data <- create_bins(data,
+                    bin_width_age = 1,
+                    bin_width_size = 0.1)
+
+
+
+###select subset of individuals for 'ageing' and apply linear model or ALK. Eg: simulating age/length(or weight) measurements made in lab from subset of individuals across all ages/sizes 
+
+data <- age_data_with_literature_growth_rate(data = data)
+
+#get sample size
+output_data$sample_size[i] <- nrow(data)
+
+#adjust estimated age to work around 0's
+data$estimated_age <- (data$estimated_age+25) 
+
+
+#Sort ages into age bins, 1 day width
+bin_width <- 1
+
+
+cat_data <- lencat(~estimated_age, data = data, startcat = 0, w = bin_width, vname = "ageCat") ## uses agecat data, bins set at 1 day
+
+##re-adjust work-around for 0's
+cat_data$ageCat <- (cat_data$ageCat-25)
+data$estimated_age <- (data$estimated_age-25) 
+
+## mode function for fully recruited age
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+
+# Calculate the mode using the user function.
+recruit_age <- getmode(cat_data$ageCat)
+recruit_age 
+
+min_est_age = min(cat_data$ageCat)
+ 
+#Catch-curve method (Linear regression), use recruit_age to truncate, or min_est_age for all ages
+catch_curve <- agesurv2(age=cat_data$ageCat, full = recruit_age, estimate = "z", method = "lr") ##
+
+output_data$catch_curve[i] <- as.numeric(catch_curve$`results`[3]) # extract z
+
+#truncated catch-curve (weighted Linear regression)
+trunc_curve <- agesurv2(age=cat_data$ageCat, full = recruit_age, estimate = "z", method = "wlr") ##
+
+output_data$weighted_catch_curve[i] <- as.numeric(trunc_curve$`results`[3])# extract z
+
+
+
+#Chapman-robson method
+CRZ <- agesurv2(age=cat_data$ageCat, full = recruit_age, estimate = "z", method = "crcb") 
+
+output_data$Chapman_Robson[i] <- as.numeric(CRZ$`results`[3]) # extract z
+
+
+#select data sample from stan known g model
+data2 <- data_for_stan_size(data, trim_to_mode = TRUE)
+
+##sample from stan model
+fit_size <- sampling(ret_size, data = data2, iter = 999, chains = 2)
+
+output_data$stan_age[i] <- mean(rstan::extract(fit_size, pars="Z")[["Z"]])
+
+
+}, error=function(e) e
+)
+
+saveRDS(output_data, "output/all_ages_s0_with_trim.rds")
+```
+
+# Read in output WITH trim
+```{r}
+output_data <- readRDS("output/all_ages_s0_with_trim.rds")
+```
+
+
+# Plot output
+
+
+Make long format data
+```{r}
+keycol <- "model"
+valuecol <- "z"
+gathercols <- c("catch_curve", "weighted_catch_curve", "Chapman_Robson", "stan_age")
+
+output_data_long <- gather_(output_data, keycol, valuecol, gathercols)
+
+head(output_data_long)
+```
+
+Plot long format trend line
+```{r}
+p4 <- ggplot(output_data_long, aes(variance, z, group = model, col = model)) +
+  geom_point() +
+  geom_smooth(method = "loess", se=F) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_classic()
+
+p4
+```
+
+
+
+
+Plot var groups seperately  
+
+variance <- c(0,0,0,0,0,0,0,0,0,0,
+              0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,
+              0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,
+              0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,0.03,
+              0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,
+              0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+              
+```{r, eval = FALSE}
+#Z_var = 0.00
+var0 <- subset(output_data_long, variance == 0)
+
+p5 <- ggplot(var0, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p5
+
+##Z_var = 0.01
+var0.01 <- subset(output_data_long, variance == 0.01)
+
+p6 <- ggplot(var0.01, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.01") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p6
+
+#Z_var = 0.025
+var0.02 <- subset(output_data_long, variance == 0.02)
+
+
+p7 <- ggplot(var0.02, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.02") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p7
+
+#var = 0.03
+var0.03 <- subset(output_data_long, variance == 0.03)
+
+
+p8 <- ggplot(var0.03, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.03") +
+  xlab("Model") + ylab("mean Z") # +
+ # ylim(0,0.6)
+
+p8
+
+#var = 0.05
+var0.05<- subset(output_data_long, variance == 0.05)
+
+
+p9 <- ggplot(var0.05, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.05") +
+  xlab("Model") + ylab("mean Z") # +
+ # ylim(0,0.6)
+
+p9
+#var = 0.1
+var0.1 <- subset(output_data_long, variance == 0.1)
+
+
+p10 <- ggplot(var0.1, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violindot(size_dots = 5 ,fill_dots = "black", aes(x = model, y = z, fill = model, group = model), binwidth = 0.0005, trim = FALSE) +
+  geom_hline(yintercept=0.25, linetype="dotdash", color = "black", size=1, alpha = 0.7) +
+  theme_modern(axis.text.angle = 45) +
+  scale_fill_material_d(palette = "ice") +
+  ggtitle("log10s0_sd = 0.1") +
+  xlab("Model") + ylab("mean Z") #+
+  #ylim(0,0.6)
+
+p10
+```
+
+
+# Facet plot
+
+Device size 6 x 13inch
+```{r}
+fac_plot2 <- ggplot(output_data_long, aes(x = model, y = z, fill = model, group = model)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), trim = FALSE) +
+  geom_hline(yintercept=0.25, color = "red", size=0.5, alpha = 0.5) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  theme(legend.position = "right") +
+  scale_fill_material_d(palette = "ice") +
+  ylab(expression(hat(Z))) +
+  facet_wrap(~variance, nrow = 1, ncol = 7)
+ 
+
+fac_plot2
+```
+
+
+

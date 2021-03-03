@@ -1,0 +1,115 @@
+---
+title: "Effect of bin size figure"
+output: html_notebook
+---
+
+Demonstrating effect of bin size of calassic catch curve methods
+
+
+
+# packages
+```{r}
+library(dplyr)
+
+library(ggplot2)
+
+library(FSA)
+
+library(fishmethods)
+```
+
+
+
+# Running Catch curve analyses with varying sample sizes
+
+Models are run on the sample data, with sample size varying from 5 to 1000.
+Z is set at 0.25, and bin sizes are set at 1-day and 2-day widths.
+
+```{r, eval = FALSE}
+
+samples_sizes <- seq(5, 1000, by = 1)  # select sample sizes to generate data from
+samples_sizes2 <- as.data.frame(samples_sizes)
+
+samples_sizes2$catch_curve_z <- rep(0,nrow(samples_sizes2))  #create col for catch curve mortality rate
+samples_sizes2$catch_curve_se <- rep(0,nrow(samples_sizes2)) #create col for catch curve mortality rate standard error
+
+#2day bins
+samples_sizes2$two_day_z <- rep(0,nrow(samples_sizes2))  #create col for catch curve mortality rate
+samples_sizes2$two_day_se <- rep(0,nrow(samples_sizes2)) #create col for catch curve mortality rate standard error
+
+
+for(i in seq_len(nrow(samples_sizes2))){
+  data <- rexp(samples_sizes[i], rate = 0.25)
+  data <- as.data.frame(data) %>% rename(age = data)
+  
+  
+  cat_data <- lencat(~age, data = data, startcat = 0, w = 1, vname = "ageCat") #setting age bins
+  cat_data.sum <- Summarize(age~ageCat,data=cat_data,digits=2)
+  catch_curve <- lm(log(n) ~ ageCat, data =cat_data.sum)
+  summary(catch_curve)  
+  
+  #plot(log(n)~ageCat, data =cat_data.sum, ylim = c(0,9), xlim = c(0,50)) ## plotting catch curves
+  #abline(catch_curve, col = "red")
+  
+  samples_sizes2$catch_curve_z[i] <- abs(coef(catch_curve)[2]) # extract catch curve z
+  samples_sizes2$catch_curve_se[i] <- summary(catch_curve)$coef[2,2] # extract catch curve stand error
+
+  cat_data <- lencat(~age, data = data, startcat = 0, w = 2, vname = "ageCat") #setting age bins
+  cat_data.sum <- Summarize(age~ageCat,data=cat_data,digits=2)
+  two_day <- lm(log(n) ~ ageCat, data =cat_data.sum)
+  summary(two_day)  
+  
+  #plot(log(n)~ageCat, data =cat_data.sum, ylim = c(0,9), xlim = c(0,50)) ## plotting catch curves
+  #abline(two_day, col = "red")
+  
+  samples_sizes2$two_day_z[i] <- abs(coef(two_day)[2]) # extract catch curve z
+  samples_sizes2$two_day_se[i] <- summary(two_day)$coef[2,2] # extract catch curve stand error
+}
+
+
+
+samples_sizes2
+
+```
+
+```{r}
+mod <- lm(two_day_z ~ catch_curve_z, data = samples_sizes2)
+summary(mod)
+
+coef(mod)[1]
+coef(mod)[2]
+```
+
+
+
+```{r}
+p <- ggplot(data = samples_sizes2, aes(x=catch_curve_z, y= two_day_z, col = samples_sizes)) +
+  
+  geom_point(size = 2, alpha = 0.5) + 
+  
+  scale_color_continuous(high = "red", low = "blue") +
+  
+  geom_abline(intercept = 0, slope = 1, col = 'black', size = 1, ) +
+  
+  geom_abline(intercept = coef(mod)[1], slope = coef(mod)[2], col = 'black', size = 1, linetype = "dashed") +
+  
+  geom_hline(yintercept = 0.25, col = 'black', size = 1, linetype = "dotted") +
+  geom_vline(xintercept = 0.25, col = 'black', size = 1, linetype = "dotted") +
+  
+  theme_bw() +
+  
+  ylim(c(0,0.3)) + xlim(c(0,0.3)) +
+  
+  ylab(expression(paste("2-day bin ", bar(z)))) +
+  
+  xlab(expression(paste("1-day bin ", bar(z)))) +
+  
+  labs(color = "Sample Size")
+
+
+
+p
+
+
+```
+
