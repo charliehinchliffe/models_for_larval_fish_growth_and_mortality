@@ -17,7 +17,6 @@ This implies that $\frac{\delta\, g}{\delta \,s} = 0$, and $a = (s - s_0)/\bar{g
 
 $$n(s,t) = \frac{R(t)}{g(s_0)} \, \exp\left(- \frac{\bar{z} \, (s - s_0)}{\bar{g}} \right)$$
 
-We then use a combination of
 
 ```{r}
 library(rstan)
@@ -42,14 +41,14 @@ source("R/plot_size_dist.R")
 First generate a population using the simulate_catch_data() function.
 ```{r}
 #for plotting
-pars <- list(R = 1000,
-             s0_av = 3,
-             log10s0_sd = 0,
-             g_av = 0.21,
-             log10g_sd = 0,
-             z_av = 0.25, 
-             log10z_sd = 0,
-             bin_width_age = 1,
+pars <- list(R = 1000, # Recruitment or hatch-rate
+             s0_av = 3, # mean size-at-hatch
+             log10s0_sd = 0, # variance around log10(s0)
+             g_av = 0.21, # mean growth rate
+             log10g_sd = 0, # variance around log10(g)
+             z_av = 0.25, # mean mortality rate
+             log10z_sd = 0, # variance around log10(z)
+             bin_width_age = 1,   
              bin_width_size = 0.1)
 
 #simulate population
@@ -65,13 +64,13 @@ plot(size_sampled ~ age, data= data)
 ```
 
 ## Plotting functions
-Check plot againt theoretical age distribution
+Check plot against theoretical age distribution
 ```{r}
 plot_age_dist(data, pars)
 ```
 
 
-Check plot againt theoretical size distribution
+Check plot against theoretical size distribution
 ```{r}
 plot_size_dist(data, pars)
 ```
@@ -87,7 +86,7 @@ data_binned <-  create_bins(data,
 ```
 
 
-## Basic Age model 
+## Basic Age model - Scenario 1
 
 Generate data for mortality age model
 ```{r}
@@ -114,10 +113,11 @@ fitted_age <- list(
               bin_width_age = pars$bin_width_age
 )
 
+#plot fitted values on data
 plot_age_dist(data, pars, fitted_age)
 ```
 
-## Basic Size mdoel
+## Basic Size mdoel - Scenario 2
 
 Estimating mortality from size (with known G).
 
@@ -146,12 +146,13 @@ fitted_size <- list(
               bin_width_size = pars$bin_width_size
 )
 
+#plot fitted values on data
 plot_size_dist(data, pars, fitted_size)
 
 ```
 
 
-## Size model also estimating growth
+## Size model also estimating growth - Scenario 3
 
 Now try estimating growth rates too (without variance). 
 
@@ -183,7 +184,7 @@ fitted_sg <- list(
               g_av = fit_g_sg,
               bin_width_size = pars$bin_width_size
 )
-
+#plot fitted values on data
 plot_size_dist(data, pars, fitted_sg)
 ```
 
